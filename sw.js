@@ -1,10 +1,14 @@
-// Подход: офлайн-кэш. Файлы приложения отдаются из кэша, а в фоне
-// подтягивается свежая версия — обновления появятся при следующем запуске.
-const CACHE = 'podhod-v1';
+// Подход: офлайн-кэш.
+// Есть интернет — берём свежую версию файлов (обновления применяются сразу).
+// Нет интернета или он еле живой — через 3 секунды отдаём сохранённую копию.
+const CACHE = 'podhod-v3';
 const ASSETS = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
+const TIMEOUT = 3000;
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE)
+    .then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -23,12 +27,17 @@ self.addEventListener('fetch', e => {
 
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    let hit = await cache.match(req, { ignoreSearch: true });
-    if (!hit && req.mode === 'navigate') hit = await cache.match('./');
-    const net = fetch(req)
-      .then(res => { if (res.ok) cache.put(req, res.clone()); return res; })
-      .catch(() => hit);
+    const cached = (await cache.match(req, { ignoreSearch: true }))
+      || (req.mode === 'navigate' ? await cache.match('./') : undefined);
+
+    const net = fetch(req, { cache: 'no-cache' }).then(res => {
+      if (res.ok) cache.put(req, res.clone());
+      return res;
+    });
     e.waitUntil(net.then(() => {}, () => {}));
-    return hit || net;
+
+    if (!cached) return net;
+    const timeout = new Promise(res => setTimeout(() => res(cached), TIMEOUT));
+    return Promise.race([net.catch(() => cached), timeout]);
   })());
 });

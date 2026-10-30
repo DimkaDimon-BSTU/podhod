@@ -104,12 +104,15 @@ canvas{width:100%;height:200px;display:block;margin-top:6px}
 .inline{display:flex;gap:8px}
 .inline input{flex:1}
 .inline .btn{width:auto;padding:12px 18px}
-.sheet-wrap{position:fixed;left:0;right:0;top:var(--vvt,0px);height:var(--vvh,100%);z-index:20;background:rgba(8,12,18,0);display:flex;align-items:flex-end;transition:background .2s}
+.sheet-wrap{position:fixed;left:0;right:0;top:var(--vvt,0px);height:var(--vvh,100%);z-index:20;background:rgba(8,12,18,0);display:flex;align-items:flex-end;transition:background .2s;overscroll-behavior:none;touch-action:none}
 .sheet-wrap.open{background:rgba(8,12,18,.45)}
-.sheet{background:var(--surface);width:100%;max-width:640px;margin:0 auto;border-radius:22px 22px 0 0;padding:8px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:94%;overflow-y:auto;-webkit-overflow-scrolling:touch;transform:translateY(100%);transition:transform .25s ease}
+.sheet{background:var(--surface);width:100%;max-width:640px;margin:0 auto;border-radius:22px 22px 0 0;padding:8px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:94%;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;transform:translateY(100%);transition:transform .25s ease}
+.sheet.dragging{transition:none}
+body.locked{position:fixed;left:0;right:0;overflow:hidden}
 .sheet-wrap.open .sheet{transform:none}
 .sheet input,.sheet select,.sheet .stepper button,.sheet .chip{background-color:var(--surface2)}
-.grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 14px}
+.grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 14px;box-shadow:0 0 0 14px transparent}
+.sheet h2:first-of-type{padding-top:2px}
 .sheet h2{font:700 23px/1.2 var(--num);margin-bottom:4px}
 #toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 12px);transform:translate(-50%,-16px);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:15px;opacity:0;pointer-events:none;transition:.2s;z-index:30;max-width:90%;text-align:center}
 #toast.show{opacity:1;transform:translate(-50%,0)}
@@ -128,6 +131,7 @@ canvas{width:100%;height:200px;display:block;margin-top:6px}
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
 'use strict';
+const APP_VERSION = '1.3';
 /* ---------- утилиты ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -196,11 +200,39 @@ function lastSessionBefore(exId, date){ const ds = Object.keys(S.workouts).filte
   for (const d of ds) { const ss = S.workouts[d].sets.filter(s => s.exId === exId); if (ss.length) return { date: d, sets: ss }; } return null; }
 
 /* ---------- шторка снизу ---------- */
-function sheet(html){ closeSheet(); const w = document.createElement('div'); w.className = 'sheet-wrap';
-  w.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div>`;
-  w.addEventListener('click', e => { if (e.target === w) closeSheet(); });
-  document.body.appendChild(w); requestAnimationFrame(() => w.classList.add('open')); return w.querySelector('.sheet'); }
-function closeSheet(){ document.querySelectorAll('.sheet-wrap').forEach(w => w.remove()); }
+// Фон под шторкой фиксируется, чтобы не прокручивался. Шторку можно смахнуть вниз.
+let lockY = 0;
+function lockPage(){ if (document.body.classList.contains('locked')) return; lockY = window.scrollY;
+  document.body.style.top = -lockY + 'px'; document.body.classList.add('locked'); }
+function unlockPage(){ if (!document.body.classList.contains('locked')) return;
+  document.body.classList.remove('locked'); document.body.style.top = ''; window.scrollTo(0, lockY); }
+function sheet(html){
+  document.querySelectorAll('.sheet-wrap').forEach(w => w.remove());
+  const w = document.createElement('div'); w.className = 'sheet-wrap';
+  w.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="grab" aria-hidden="true"></div>${html}</div>`;
+  const sh = w.querySelector('.sheet');
+  w.addEventListener('click', e => { if (e.target === w) dismissSheet(); });
+  // фон: никаких жестов
+  w.addEventListener('touchmove', e => { if (!sh.contains(e.target)) e.preventDefault(); }, { passive: false });
+  // смахивание вниз
+  let y0 = 0, t0 = 0, dy = 0, drag = false, maybe = false;
+  sh.addEventListener('touchstart', e => { if (e.touches.length !== 1) return; y0 = e.touches[0].clientY; t0 = Date.now(); dy = 0; drag = false;
+    maybe = sh.scrollTop <= 0 || !!e.target.closest('.grab'); }, { passive: true });
+  sh.addEventListener('touchmove', e => {
+    if (!maybe) return; dy = e.touches[0].clientY - y0;
+    if (!drag) { if (dy > 6) { drag = true; sh.classList.add('dragging'); document.activeElement && document.activeElement.blur && document.activeElement.blur(); }
+      else if (dy < -6) { maybe = false; return; } else return; }
+    e.preventDefault(); sh.style.transform = `translateY(${Math.max(0, dy)}px)`;
+  }, { passive: false });
+  const end = () => { if (!drag) return; drag = false; sh.classList.remove('dragging');
+    const fast = dy > 40 && dy / Math.max(1, Date.now() - t0) > 0.5;
+    if (dy > Math.min(140, sh.offsetHeight * 0.3) || fast) dismissSheet(); else sh.style.transform = ''; };
+  sh.addEventListener('touchend', end); sh.addEventListener('touchcancel', end);
+  lockPage(); document.body.appendChild(w); requestAnimationFrame(() => w.classList.add('open')); return sh; }
+function closeSheet(){ document.querySelectorAll('.sheet-wrap').forEach(w => w.remove()); unlockPage(); }
+function dismissSheet(){ const w = document.querySelector('.sheet-wrap'); if (!w) return unlockPage();
+  const sh = w.querySelector('.sheet'); sh.style.transform = 'translateY(100%)'; w.classList.remove('open');
+  setTimeout(() => { if (w.isConnected) { w.remove(); if (!document.querySelector('.sheet-wrap')) unlockPage(); } }, 230); }
 if (window.visualViewport) { const vv = visualViewport;
   const fit = () => { document.documentElement.style.setProperty('--vvh', vv.height + 'px'); document.documentElement.style.setProperty('--vvt', vv.offsetTop + 'px'); };
   vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit(); }
@@ -277,7 +309,7 @@ function openSetSheet(exId){
       if (!(w >= 0) || !(r > 0)) { toast('Укажи вес и количество повторов'); return; }
       const wk = S.workouts[D] || (S.workouts[D] = { sets: [] }); wk.sets.push({ id: uid(), exId, w, r, t: Date.now() });
       save(); render(); info(); toast(`Подход ${todays().length} записан`); }
-    else if (s === 'done') closeSheet(); };
+    else if (s === 'done') dismissSheet(); };
 }
 
 /* ----- еда ----- */
@@ -559,7 +591,7 @@ function viewProfile(){
   <div class="card"><h2>Данные</h2><p class="small" style="margin-bottom:12px">Всё хранится только на этом телефоне: ${nW} ${plural(nW, 'день', 'дня', 'дней')} тренировок, ${nM} ${plural(nM, 'день', 'дня', 'дней')} питания, ${S.foods.length} ${plural(S.foods.length, 'продукт', 'продукта', 'продуктов')}. Время от времени сохраняй копию в «Файлы», iCloud Drive или на компьютер. Последняя копия: ${S.lastExport ? fmtDay(S.lastExport).toLowerCase() : 'ещё не сохранялась'}.</p>
     <button class="btn" data-act="export">Сохранить копию данных</button><button class="btn ghost" data-act="import">Восстановить из копии</button>
     <input type="file" id="importFile" accept="application/json,.json" hidden></div>
-  <p class="small" style="text-align:center;margin:18px 0 6px">Данные о продуктах: <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>, лицензия ODbL</p>`;
+  <p class="small" style="text-align:center;margin:18px 0 6px">Данные о продуктах: <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>, лицензия ODbL</p><p class="small" style="text-align:center;margin-bottom:6px">Версия ${APP_VERSION}</p>`;
 }
 async function exportData(){
   const name = `podhod-${today()}.json`; S.lastExport = today();
@@ -620,7 +652,10 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if
   if (!S) S = freshState();
   migrate(S); render();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    const hadCtl = !!navigator.serviceWorker.controller; let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (!hadCtl || reloaded) return; reloaded = true; persist().then(() => location.reload()); });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => {}); }
 })();
 </script>
 </body>
