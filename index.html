@@ -25,11 +25,12 @@
   --bg:#11151B;--surface:#1B2129;--surface2:#252C36;--ink:#E8ECF1;--muted:#8D96A3;--line:#2E3642;
   --red:#F0574C;--green:#45B873;--blue:#6A95F7;--yellow:#E3B341;color-scheme:dark;
 }}
-body[data-tab=workout]{--accent:var(--red)}
-body[data-tab=food]{--accent:var(--green)}
-body[data-tab=progress]{--accent:var(--blue)}
+body[data-screen=workout]{--accent:var(--red)}
+body[data-screen=food]{--accent:var(--green)}
+body[data-screen=progress]{--accent:var(--blue)}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{min-height:100%}
+html{scroll-padding-bottom:calc(96px + env(safe-area-inset-bottom,0px));scroll-padding-top:calc(70px + env(safe-area-inset-top,0px))}
 body{background:var(--bg);color:var(--ink);font:16px/1.4 var(--text);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
 button{cursor:pointer;font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -115,7 +116,7 @@ canvas{width:100%;height:200px;display:block;margin-top:6px}
 @media (prefers-reduced-motion:reduce){.sheet,.sheet-wrap,#toast{transition:none}}
 </style>
 </head>
-<body data-tab="workout">
+<body data-screen="workout">
 <header id="top"></header>
 <main id="main"></main>
 <nav id="nav" aria-label="Разделы">
@@ -206,7 +207,7 @@ if (window.visualViewport) { const vv = visualViewport;
 
 /* ---------- отрисовка ---------- */
 function render(){
-  document.body.dataset.tab = TAB;
+  document.body.dataset.screen = TAB;
   document.querySelectorAll('#nav button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === TAB ? 'page' : 'false'));
   const dated = TAB === 'workout' || TAB === 'food';
   $('#top').innerHTML = dated
@@ -596,7 +597,7 @@ const ACTIONS = {
 };
 document.addEventListener('click', e => {
   if (e.target.closest('.sheet')) return; // у шторок свои обработчики
-  const t = e.target.closest('[data-act],[data-tab]'); if (!t) return;
+  const t = e.target.closest('button[data-act],button[data-tab]'); if (!t) return;
   if (t.dataset.tab) { TAB = t.dataset.tab; render(); scrollTo(0, 0); return; }
   const fn = ACTIONS[t.dataset.act]; if (fn) fn(t, e);
 });
