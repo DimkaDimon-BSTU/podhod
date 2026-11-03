@@ -1,7 +1,7 @@
 // Подход: офлайн-кэш.
 // Есть интернет — берём свежую версию файлов (обновления применяются сразу).
 // Нет интернета или он еле живой — через 3 секунды отдаём сохранённую копию.
-const CACHE = 'podhod-v3';
+const CACHE = 'podhod-v4';
 const ASSETS = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 const TIMEOUT = 3000;
 
@@ -14,7 +14,7 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k.startsWith('podhod-') && k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
