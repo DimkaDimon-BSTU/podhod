@@ -167,6 +167,46 @@ body.has-timer main{padding-bottom:calc(200px + env(safe-area-inset-bottom,0px))
 .chip[aria-pressed=true]{background:var(--accent);color:#fff}
 .seg{display:flex;gap:6px;flex-wrap:wrap}
 .seg .chip{flex:1;padding:11px 10px;font-size:15px}
+.sw{position:relative;overflow:hidden;border-bottom:1px solid var(--line)}
+.sw:last-child{border-bottom:0}
+.sw .swf{position:relative;z-index:2;background:var(--surface);border-bottom:0;padding-left:2px;padding-right:2px;touch-action:pan-y}
+.sw-add{position:absolute;inset:0 auto 0 0;width:100%;z-index:1;display:flex;align-items:center;padding-left:14px;background:var(--green);color:#fff;font-weight:600;opacity:0}
+.sw.adding .sw-add{opacity:1}
+.sw-acts{position:absolute;top:0;right:0;bottom:0;z-index:1;display:flex}
+.sw-act{width:72px;border:0;font:600 13px var(--text);color:#fff;background:var(--blue)}.sw-act.del{background:var(--red)}
+.swhint{margin:8px 0 2px}
+.circuit{border:2px solid var(--accent);border-radius:20px;padding:10px 6px 0;margin-bottom:12px}
+.circuit.complete{opacity:.75}
+.circ-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:0 8px}
+.circ-head b{font:700 17px var(--num)}
+.circ-goal{padding:0 8px 8px}
+.circuit .ex{margin-bottom:6px}
+.iconbtn.sm.link{font-size:15px;color:var(--muted)}.iconbtn.sm.link[aria-pressed=true]{background:var(--accent);color:#fff}
+.tlink{display:block;margin:-2px auto 8px;border:0;background:none;color:var(--muted);font:600 13px var(--text);padding:6px 10px;border-radius:999px}
+.tlink[aria-pressed=true]{color:var(--accent)}
+.ti.inc{border-color:var(--accent);border-left-width:4px}
+.circ-tag{font:700 12px var(--text);color:var(--accent);margin-bottom:4px}
+.t-skip{align-self:end;padding:0 0 12px;font-size:12px;color:var(--muted);text-align:center}
+.tset{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.trow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+.trow span{font-size:15px;min-width:0}
+.tstep{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.tstep button{width:40px;height:40px;border:0;border-radius:12px;background:var(--surface2);font:500 22px var(--num)}
+.tstep b{min-width:56px;text-align:center;font:700 20px var(--num);font-variant-numeric:tabular-nums}
+.run{text-align:center;border-radius:20px;padding:18px 12px 14px;margin:4px 0 12px;background:var(--surface2);transition:background .2s}
+.run.ph-work{background:var(--red);color:#fff}.run.ph-rest{background:var(--blue);color:#fff}.run.ph-prep,.run.ph-trans{background:var(--yellow);color:#18202B}
+.run.ph-done{background:var(--green);color:#fff}.run.paused{filter:saturate(.35)}
+.r-ph{font:700 15px var(--text);text-transform:uppercase;letter-spacing:.06em;opacity:.85}
+.r-name{font:600 18px var(--text);min-height:24px;margin-top:2px}
+.r-time{font:700 96px/1 var(--num);font-variant-numeric:tabular-nums;margin:10px 0}
+.r-track{height:6px;border-radius:3px;background:rgba(255,255,255,.3);overflow:hidden;margin:0 10px}
+.r-fill{display:block;height:100%;width:0;background:currentColor;opacity:.9}
+.r-round{font:600 15px var(--num);margin-top:10px;min-height:20px}
+.r-next{font-size:14px;opacity:.85;margin-top:4px}
+#restbar.warn .rt-fill{background:var(--yellow)}#restbar.warn .rt-time{color:var(--yellow)}
+.ex-tools{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.grid2 > .btn{margin-top:0}
+.grid2 + .btn{margin-top:8px}
 .tpl-start .row .meta{color:var(--accent);font-weight:600}
 @media (prefers-reduced-motion:reduce){.sheet,.sheet-wrap,#toast{transition:none}}
 </style>
@@ -186,7 +226,7 @@ body.has-timer main{padding-bottom:calc(200px + env(safe-area-inset-bottom,0px))
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
 'use strict';
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
 /* ---------- утилиты ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -332,17 +372,30 @@ const fmtClock = sec => { sec = Math.max(0, Math.round(sec)); return `${Math.flo
 const fmtDur = min => min >= 60 ? `${Math.floor(min / 60)} ч ${pad(min % 60)} мин` : `${min} мин`;
 let AC = null; const beeps = {};
 function audio(){ try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); } catch (e) {} return AC; }
-function cancelBeep(key){ for (const o of beeps[key] || []) { try { o.stop(); } catch (e) {} } beeps[key] = []; }
-function scheduleBeep(inSec, key){ cancelBeep(key); const ac = audio(); if (!ac) return; const t0 = ac.currentTime + Math.max(0.05, inSec); beeps[key] = [];
+const vibT = {};
+function cancelBeep(key){ for (const o of beeps[key] || []) { try { o.stop(); } catch (e) {} } beeps[key] = []; (vibT[key] || []).forEach(clearTimeout); vibT[key] = []; }
+function tone(ac, t, f, dur){ const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.6, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + dur + 0.02); return o; }
+// сигналы: end — конец отдыха, warn — предупреждение, tick — отсчёт, go — старт, long — конец работы
+const CUES = { end: [[0, 880, .22], [.3, 880, .22], [.6, 1320, .35]], warn: [[0, 660, .12], [.18, 660, .12]], tick: [[0, 740, .1]], go: [[0, 1320, .45]], long: [[0, 988, .7]] };
+const VIB = { end: [250, 100, 250], warn: [80, 80, 80], tick: 60, go: 300, long: [400] };
+function scheduleCues(key, list){ cancelBeep(key); const ac = audio(); beeps[key] = []; vibT[key] = [];
+  for (const [at, name] of list) { if (at < -0.05) continue;
+    if (ac) for (const [dt, f, d] of CUES[name]) beeps[key].push(tone(ac, ac.currentTime + Math.max(0.03, at) + dt, f, d));
+    if (navigator.vibrate) vibT[key].push(setTimeout(() => navigator.vibrate(VIB[name]), at * 1000)); } }
+function scheduleBeep(inSec, key){ scheduleCues(key, [[inSec, 'end']]); }
+function scheduleBeepOld(inSec, key){ cancelBeep(key); const ac = audio(); if (!ac) return; const t0 = ac.currentTime + Math.max(0.05, inSec); beeps[key] = [];
   for (let i = 0; i < 3; i++) { const o = ac.createOscillator(), g = ac.createGain(), t = t0 + i * 0.3;
     o.type = 'sine'; o.frequency.value = i === 2 ? 1320 : 880;
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.6, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
     o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.26); beeps[key].push(o); } }
 function restFor(it){ const v = it && it.rest !== undefined && it.rest !== '' && it.rest !== null ? Number(it.rest) : num(S.profile.rest); return v > 0 ? v : 0; }
-function startRest(sec){ if (!(sec > 0)) return; S.timer = { end: Date.now() + sec * 1000, total: sec }; save(); scheduleBeep(sec, 'rest'); tick(); }
+const restCues = left => scheduleCues('rest', [...(left > 15 ? [[left - 10, 'warn']] : []), [left, 'end']]);
+function startRest(sec){ if (!(sec > 0)) return; S.timer = { end: Date.now() + sec * 1000, total: sec }; save(); restCues(sec); tick(); }
 function adjustRest(d){ const t = S.timer; if (!t) return; if (d === 0) { S.timer = null; cancelBeep('rest'); save(); tick(); return; }
   t.end += d * 1000; t.total = Math.max(5, t.total + d); const left = (t.end - Date.now()) / 1000;
-  if (left <= 0) { S.timer = null; cancelBeep('rest'); } else { t.rang = false; scheduleBeep(left, 'rest'); } save(); tick(); }
+  if (left <= 0) { cancelBeep('rest'); } else restCues(left); save(); tick(); }
 function lastActivity(wk){ return Math.max(wk.startedAt || 0, ...wk.sets.map(s => s.t || 0)); }
 function isLive(wk, date){ return !!(wk && date === today() && wk.startedAt && !wk.finishedAt && Date.now() - lastActivity(wk) < 3 * 3600e3); }
 let tickT = null;
@@ -351,10 +404,9 @@ function tick(){
   const wc = $('#wclock'); if (wc && live) wc.textContent = fmtClock((Date.now() - wk.startedAt) / 1000);
   if (!t) { bar.hidden = true; document.body.classList.remove('has-timer'); }
   else { const left = (t.end - Date.now()) / 1000; bar.hidden = false; document.body.classList.add('has-timer');
-    if (left <= 0) { bar.classList.add('done'); bar.querySelector('.rt-label').textContent = 'Отдых окончен, вперёд!'; bar.querySelector('.rt-time').textContent = '0:00'; bar.querySelector('.rt-fill').style.width = '100%';
-      if (!t.rang) { t.rang = true; if (navigator.vibrate) navigator.vibrate([200, 100, 200]); }
-      if (left < -8) { S.timer = null; save(); tick(); return; } }
-    else { bar.classList.remove('done'); bar.querySelector('.rt-label').textContent = 'Отдых'; bar.querySelector('.rt-time').textContent = fmtClock(Math.ceil(left));
+    if (left <= 0) { bar.classList.add('done'); bar.classList.remove('warn'); bar.querySelector('.rt-label').textContent = 'Отдых окончен, вперёд!'; bar.querySelector('.rt-time').textContent = '−' + fmtClock(Math.floor(-left)); bar.querySelector('.rt-fill').style.width = '100%';
+      if (left < -900) { S.timer = null; save(); tick(); return; } }
+    else { bar.classList.remove('done'); bar.classList.toggle('warn', left <= 10); bar.querySelector('.rt-label').textContent = left <= 10 ? 'Отдых, приготовься' : 'Отдых'; bar.querySelector('.rt-time').textContent = fmtClock(Math.ceil(left));
       bar.querySelector('.rt-fill').style.width = `${Math.min(100, 100 - left / t.total * 100)}%`; } }
   const need = !!t || live; if (need && !tickT) tickT = setInterval(tick, 250); if (!need && tickT) { clearInterval(tickT); tickT = null; }
 }
@@ -382,22 +434,34 @@ function viewWorkout(){
       `<button class="row" data-act="starttpl" data-id="${t.id}"><span class="nm">${esc(t.name)}<small>${esc(tplSummary(t))}</small></span><span class="meta">Начать</span></button>`).join('')}</div>`;
     else h += `<p class="empty">Тренировки за этот день нет. Собери шаблон заранее, тогда в зале останется только вписывать повторы.</p><button class="btn ghost" data-act="newtpl" style="margin-bottom:8px">Создать шаблон тренировки</button>`;
   }
-  for (const it of items) {
-    const id = it.exId, ex = exById(id); if (!ex) continue;
-    const done = sets.filter(s => s.exId === id), prev = lastSessionBefore(id, D), timed = isTimed(ex), rest = restFor(it);
+  const exCard = (it, ctx) => {
+    const id = it.exId, ex = exById(id); if (!ex) return '';
+    const done = sets.filter(s => s.exId === id), prev = lastSessionBefore(id, D), timed = isTimed(ex), rest = ctx.inCirc ? 0 : restFor(it);
     const ps = prev && (prev.sets[done.length] || prev.sets.at(-1));
     let wv = done.length ? done.at(-1).w : ps ? ps.w : ''; if (ex.bw && !(wv > 0)) wv = '';
-    const goal = [it.sets ? (it.target ? `${it.sets} × ${it.target}${timed ? ' с' : ''}` : `${it.sets} ${plural(it.sets, 'подход', 'подхода', 'подходов')}`) : it.target || '', rest ? `отдых ${fmtClock(rest)}` : ''].filter(Boolean).join(', ');
-    const complete = it.sets && done.length >= it.sets;
-    h += `<section class="ex${complete ? ' complete' : ''}" id="ex-${id}"><div class="ex-head"><h3>${esc(ex.name)}</h3>${it.sets ? `<span class="count">${done.length}/${it.sets}</span>`
-        : done.length ? '' : `<button class="iconbtn sm" data-act="rmex" data-ex="${id}" aria-label="Убрать упражнение">×</button>`}</div>
+    const n = ctx.inCirc ? ctx.rounds : it.sets;
+    const goal = ctx.inCirc ? (it.target ? `${it.target}${timed ? ' с' : ''}` : '')
+      : [it.sets ? (it.target ? `${it.sets} × ${it.target}${timed ? ' с' : ''}` : `${it.sets} ${plural(it.sets, 'подход', 'подхода', 'подходов')}`) : it.target || '', rest ? `отдых ${fmtClock(rest)}` : ''].filter(Boolean).join(', ');
+    const complete = n && done.length >= n;
+    return `<section class="ex${complete ? ' complete' : ''}" id="ex-${id}"><div class="ex-head"><h3>${esc(ex.name)}</h3><span class="ex-tools">
+        ${ctx.hasNext ? `<button class="iconbtn sm link" data-act="link" data-ex="${id}" aria-pressed="${!!it.link}" aria-label="${it.link ? 'Разорвать круг' : 'Объединить в круг со следующим'}">⛓</button>` : ''}
+        ${n ? `<span class="count">${done.length}/${n}</span>` : done.length ? '' : `<button class="iconbtn sm" data-act="rmex" data-ex="${id}" aria-label="Убрать упражнение">×</button>`}</span></div>
       ${goal ? `<p class="goal">План: ${esc(goal)}</p>` : ''}
       <p class="prev">${prev ? `Прошлый раз, ${shortDay(prev.date)}: ${prev.sets.map(setTxt).join(', ')}` : 'Первый раз в этом упражнении'}</p>
       ${done.length ? `<div class="sets">${done.map(s => `<button class="set" data-act="delset" data-id="${s.id}" aria-label="Подход ${setTxt(s)}. Нажми, чтобы удалить">${setHtml(s)}</button>`).join('')}</div>` : ''}
       <div class="logrow"><input id="iw-${id}" inputmode="decimal" value="${wv === '' ? '' : fmtW(wv)}" placeholder="${ex.bw ? '+кг' : 'кг'}" aria-label="${ex.bw ? 'Доп. вес, кг' : 'Вес, кг'}"><span class="x">×</span>
         <input id="ir-${id}" data-log="${id}" inputmode="numeric" placeholder="${ps ? ps.r : timed ? 'сек' : 'повт.'}" aria-label="${timed ? 'Секунды' : 'Повторы'}">
-        ${timed ? `<button class="iconbtn sm" data-act="stopwatch" data-ex="${id}" aria-label="Секундомер">⏱</button>` : ''}<button class="logbtn" data-act="logset" data-ex="${id}" aria-label="Записать подход">✓</button></div></section>`;
-  }
+        ${timed ? `<button class="iconbtn sm" data-act="ivtimer" data-ex="${id}" aria-label="Таймер">⏱</button>` : ''}<button class="logbtn" data-act="logset" data-ex="${id}" aria-label="Записать подход">✓</button></div></section>`;
+  };
+  circuitsOf(items).forEach((g, gi, all) => {
+    const lastGroup = gi === all.length - 1;
+    if (g.length === 1) { h += exCard(g[0], { hasNext: !lastGroup }); return; }
+    const rounds = g[0].sets || 0, rdone = Math.min(...g.map(i => sets.filter(s => s.exId === i.exId).length)), rest = restFor(g.at(-1));
+    const allTimed = g.every(i => isTimed(exById(i.exId)));
+    h += `<div class="circuit${rounds && rdone >= rounds ? ' complete' : ''}"><div class="circ-head"><b>Круг${rounds ? ` ${Math.min(rdone + 1, rounds)} из ${rounds}` : ''}</b>${allTimed ? `<button class="chip go" data-act="ivtimer" data-ex="${g[0].exId}">▶ Таймер круга</button>` : ''}</div>
+      <p class="goal circ-goal">${g.length} ${plural(g.length, 'упражнение', 'упражнения', 'упражнений')} подряд${rest ? `, отдых ${fmtClock(rest)} после круга` : ''}</p>
+      ${g.map((it, k) => exCard(it, { inCirc: true, rounds, hasNext: k < g.length - 1 || !lastGroup })).join('')}</div>`;
+  });
   h += `<button class="btn ${items.length ? 'ghost' : 'accent'}" data-act="pickex">Добавить упражнение</button>`;
   if (live) h += `<button class="btn accent" data-act="finish">Завершить тренировку</button>`;
   if (sets.length) h += `<div class="card" style="margin-top:14px"><h2>Детали</h2>
@@ -415,16 +479,129 @@ function logSet(exId){
   if (!(r > 0)) { toast(isTimed(ex) ? 'Впиши секунды или включи секундомер' : 'Впиши количество повторов'); rInp.focus(); return; }
   addSet(exId, w, r, auto);
 }
-function addSet(exId, w, r, auto){
+function addSet(exId, w, r, auto, opt = {}){
   audio(); const wk = ensureWk();
   if (D === today() && !wk.startedAt) { wk.startedAt = Date.now(); requestWake(); }
   const s = { id: uid(), exId, w, r, t: Date.now() }; wk.sets.push(s);
   if (!wk.plan.some(i => i.exId === exId)) wk.plan.push({ exId });
   const it = wk.plan.find(i => i.exId === exId);
   const allDone = wk.plan.some(i => i.sets) && wk.plan.every(i => !i.sets || wk.sets.filter(x => x.exId === i.exId).length >= i.sets);
+  const grp = groupOf(wkPlan(wk), exId); let nextEx = null;
   save();
-  if (D === today()) { if (allDone) { S.timer = null; cancelBeep('rest'); toast('Все подходы по плану сделаны! Можно завершать'); } else startRest(restFor(it)); }
-  render(); if (!allDone || D !== today()) toast(`${auto ? 'Как в прошлый раз: ' : 'Записано: '}${setTxt(s)}`);
+  if (D === today() && !opt.noRest) {
+    if (allDone) { S.timer = null; cancelBeep('rest'); toast('Все подходы по плану сделаны! Можно завершать'); }
+    else if (grp && grp.at(-1).exId !== exId) { S.timer = null; cancelBeep('rest'); nextEx = grp[grp.findIndex(i => i.exId === exId) + 1].exId; }
+    else startRest(restFor(grp ? grp.at(-1) : it)); }
+  render();
+  if (nextEx) { const el = document.getElementById('ex-' + nextEx); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+  if (!opt.quiet && (!allDone || D !== today())) toast(`${auto ? 'Как в прошлый раз: ' : 'Записано: '}${setTxt(s)}${nextEx ? `, дальше: ${exById(nextEx).name}` : grp && !opt.noRest && D === today() ? ', круг пройден, отдых' : ''}`);
+}
+/* ----- интервальный таймер (работа / отдых / подходы, как Табата) ----- */
+function circuitsOf(items){ const g = []; let cur = []; items.forEach((it, i) => { cur.push(it); if (!it.link || i === items.length - 1) { g.push(cur); cur = []; } }); return g; }
+function groupOf(items, exId){ const g = circuitsOf(items).find(x => x.some(i => i.exId === exId)); return g && g.length > 1 ? g : null; }
+const lastNum = v => { const m = String(v || '').match(/\d+/g); return m ? Number(m.at(-1)) : 0; };
+function openTimer(exId){
+  const wk = S.workouts[D], items = wkPlan(wk), it = items.find(i => i.exId === exId) || { exId }, grp = groupOf(items, exId);
+  const allTimed = grp && grp.every(i => isTimed(exById(i.exId)));
+  const mode = grp ? (allTimed ? 'circuit' : 'one') : 'sets';
+  const steps = mode === 'circuit' ? grp.map(i => i.exId) : [exId];
+  const doneOf = id => (wk ? wk.sets : []).filter(s => s.exId === id).length;
+  const lastOf = id => { const p = lastSessionBefore(id, D); return p ? p.sets[0].r : 0; };
+  const st = { work: {}, rest: restFor(mode === 'circuit' ? grp.at(-1) : it) || 60, prep: num(S.profile.ivPrep) >= 0 && S.profile.ivPrep !== undefined ? num(S.profile.ivPrep) : 5,
+    trans: num(S.profile.ivTrans) >= 0 && S.profile.ivTrans !== undefined ? num(S.profile.ivTrans) : 10, rounds: 1 };
+  for (const id of steps) { const x = items.find(i => i.exId === id) || {}; st.work[id] = lastNum(x.target) || lastOf(id) || 30; }
+  if (mode === 'sets') st.rounds = Math.max(1, (it.sets || 3) - doneOf(exId));
+  if (mode === 'circuit') st.rounds = Math.max(1, (grp[0].sets || 3) - Math.min(...grp.map(i => doneOf(i.exId))));
+  const weights = {}; for (const id of steps) { const inp = $('#iw-' + id); weights[id] = num(inp && inp.value || 0) || 0; }
+  const row = (key, label, val, stepV) => `<div class="trow"><span>${label}</span><div class="tstep"><button data-s="dec" data-k="${key}" data-v="${stepV}" aria-label="Меньше">−</button><b id="tv-${key.replace(/[^\w-]/g, '_')}">${val}</b><button data-s="inc" data-k="${key}" data-v="${stepV}" aria-label="Больше">+</button></div></div>`;
+  const fmtV = (key, v) => key === 'rounds' ? v : fmtClock(v);
+  const sh = sheet(`<div id="tbox"></div>`);
+  const box = sh.querySelector('#tbox');
+  const setup = () => {
+    box.innerHTML = `<h2>${mode === 'circuit' ? 'Таймер круга' : 'Таймер'}</h2><p class="prev">${mode === 'circuit' ? grp.map(i => esc(exById(i.exId).name)).join(' → ') : esc(exById(exId).name)}</p>
+      <div class="tset">${steps.map(id => row('w:' + id, mode === 'circuit' ? `${esc(exById(id).name)}` : 'Работа', fmtV('w', st.work[id]), 5)).join('')}
+        ${mode !== 'one' ? row('rest', mode === 'circuit' ? 'Отдых после круга' : 'Отдых между подходами', fmtV('rest', st.rest), 15) : ''}
+        ${mode === 'circuit' ? row('trans', 'Переход между упражнениями', fmtV('trans', st.trans), 5) : ''}
+        ${mode !== 'one' ? row('rounds', mode === 'circuit' ? 'Круги' : 'Подходы', st.rounds, 1) : ''}
+        ${row('prep', 'Подготовка перед стартом', fmtV('prep', st.prep), 5)}</div>
+      <p class="small" style="margin:10px 0 14px">Встаёшь в позицию за время подготовки, дальше всё идёт само, подходы записываются автоматически. Сигналы: 3-2-1 перед стартом, за 5 секунд до конца работы и за 10 секунд до конца отдыха.</p>
+      <button class="btn accent" data-s="start">Старт</button>${mode === 'sets' ? '<button class="btn ghost" data-s="sw">Секундомер (на максимум)</button>' : ''}`; };
+  setup();
+  // ---- прогон
+  let phases = [], idx = -1, phaseEnd = 0, paused = false, remain = 0, iv = null, logged = 0, workStart = 0;
+  const build = () => { phases = []; if (st.prep > 0) phases.push({ type: 'prep', len: st.prep });
+    for (let r = 1; r <= st.rounds; r++) { steps.forEach((id, k) => { phases.push({ type: 'work', len: st.work[id], exId: id, round: r });
+        if (k < steps.length - 1 && st.trans > 0) phases.push({ type: 'trans', len: st.trans, round: r, next: steps[k + 1] }); });
+      if (r < st.rounds && mode !== 'one' && st.rest > 0) phases.push({ type: 'rest', len: st.rest, round: r }); } };
+  const cueFor = (p, left) => { const L = [];
+    if (p.type === 'work') { if (left > 6) L.push([left - 5, 'warn']); for (const k of [3, 2, 1]) if (left - k > 0.3) L.push([left - k, 'tick']); L.push([left, 'long']); }
+    else { if (p.type === 'rest' && left > 15) L.push([left - 10, 'warn']); for (const k of [3, 2, 1]) if (left - k > 0.3) L.push([left - k, 'tick']); L.push([left, 'go']); }
+    scheduleCues('iv', L); };
+  const NAMES = { prep: 'Приготовься', work: 'Работа', rest: 'Отдых', trans: 'Переход' };
+  const nextTxt = i => { const n = phases[i + 1]; if (!n) return 'Это последний отрезок';
+    return n.type === 'work' ? `Дальше: ${exById(n.exId).name}, ${fmtClock(n.len)}` : `Дальше: ${NAMES[n.type].toLowerCase()} ${fmtClock(n.len)}`; };
+  const paintRun = left => { const p = phases[idx]; if (!p) return;
+    box.querySelector('.run').className = `run ph-${p.type}${paused ? ' paused' : ''}`;
+    box.querySelector('.r-ph').textContent = paused ? 'Пауза' : NAMES[p.type];
+    box.querySelector('.r-name').textContent = p.type === 'work' ? exById(p.exId).name : p.type === 'trans' ? `Готовься: ${exById(p.next).name}` : '';
+    box.querySelector('.r-time').textContent = fmtClock(Math.ceil(left));
+    box.querySelector('.r-fill').style.width = `${Math.min(100, 100 - left / p.len * 100)}%`;
+    box.querySelector('.r-round').textContent = mode === 'one' ? '' : `${mode === 'circuit' ? 'Круг' : 'Подход'} ${p.round || 1} из ${st.rounds}`;
+    box.querySelector('.r-next').textContent = nextTxt(idx);
+    box.querySelector('[data-s=pause]').textContent = paused ? 'Продолжить' : 'Пауза'; };
+  const logWork = (p, secs) => { if (!(secs >= 1)) return; logged++; addSet(p.exId, weights[p.exId] || 0, Math.round(secs), false, { noRest: mode !== 'one', quiet: mode !== 'one' }); };
+  const begin = i => { idx = i; const p = phases[idx]; if (!p) return finish(); phaseEnd = Date.now() + p.len * 1000; if (p.type === 'work') workStart = Date.now(); cueFor(p, p.len); paintRun(p.len); };
+  const stopAll = () => { clearInterval(iv); iv = null; cancelBeep('iv'); };
+  const finish = () => { stopAll();
+    if (mode === 'one') { if (sh.isConnected) closeSheet(); return; }
+    const w2 = S.workouts[D], plan = wkPlan(w2), allDone = plan.some(i => i.sets) && plan.every(i => !i.sets || w2.sets.filter(x => x.exId === i.exId).length >= i.sets);
+    box.innerHTML = `<div class="run ph-done"><div class="r-ph">Готово</div><div class="r-time">✓</div><p class="r-next">${logged ? `Записано: ${logged} ${plural(logged, 'подход', 'подхода', 'подходов')}` : 'Ничего не записано'}</p></div>
+      <button class="btn accent" data-s="close">${allDone || D !== today() ? 'Готово' : 'Готово, отдых перед следующим'}</button>`;
+    box.dataset.next = allDone || D !== today() ? '' : String(restFor(mode === 'circuit' ? grp.at(-1) : it)); };
+  const loop = () => { if (!sh.isConnected) { stopAll(); return; } if (paused) return; const p = phases[idx]; if (!p) return;
+    const left = (phaseEnd - Date.now()) / 1000;
+    if (left <= 0) { if (p.type === 'work') logWork(p, p.len); begin(idx + 1); } else paintRun(left); };
+  sh.onclick = e => { const b = e.target.closest('button[data-s]'); if (!b) return; const s = b.dataset.s;
+    if (s === 'inc' || s === 'dec') { const k = b.dataset.k, d = Number(b.dataset.v) * (s === 'inc' ? 1 : -1);
+      if (k.startsWith('w:')) { const id = k.slice(2); st.work[id] = Math.max(5, st.work[id] + d); box.querySelector('#tv-' + k.replace(/[^\w-]/g, '_')).textContent = fmtClock(st.work[id]); }
+      else { const min = k === 'rounds' ? 1 : 0; st[k] = Math.max(min, st[k] + d); box.querySelector('#tv-' + k).textContent = fmtV(k, st[k]); } }
+    else if (s === 'sw') openStopwatch(exId);
+    else if (s === 'start') { audio(); S.timer = null; cancelBeep('rest'); tick(); requestWake(); S.profile.ivPrep = String(st.prep); if (mode === 'circuit') S.profile.ivTrans = String(st.trans); save(); build();
+      box.innerHTML = `<div class="run"><div class="r-ph"></div><div class="r-name"></div><div class="r-time">0:00</div><div class="r-track"><i class="r-fill"></i></div><div class="r-round"></div><p class="r-next"></p></div>
+        <div class="grid2"><button class="btn ghost" data-s="pause">Пауза</button><button class="btn ghost" data-s="skip">Пропустить</button></div><button class="btn ghost danger" data-s="stop">Стоп</button>`;
+      begin(0); iv = setInterval(loop, 100); }
+    else if (s === 'pause') { const p = phases[idx]; if (!p) return;
+      if (!paused) { paused = true; remain = phaseEnd - Date.now(); cancelBeep('iv'); paintRun(remain / 1000); }
+      else { paused = false; phaseEnd = Date.now() + remain; cueFor(p, remain / 1000); paintRun(remain / 1000); } }
+    else if (s === 'skip') { const p = phases[idx]; if (!p) return; cancelBeep('iv');
+      if (p.type === 'work') logWork(p, Math.floor(((paused ? (p.len * 1000 - remain) : (Date.now() - workStart))) / 1000)); paused = false; begin(idx + 1); }
+    else if (s === 'stop') { const p = phases[idx]; const held = p && p.type === 'work' ? Math.floor((paused ? (p.len * 1000 - remain) : (Date.now() - workStart)) / 1000) : 0; stopAll();
+      if (held >= 1 && confirm(`Записать текущий подход: ${held} с?`)) logWork(p, held);
+      if (mode === 'one') { closeSheet(); return; } finish(); }
+    else if (s === 'close') { const n = Number(box.dataset.next || 0); dismissSheet(); if (n > 0) startRest(n); } };
+}
+
+/* ----- свайпы в списке упражнений ----- */
+function attachSwipes(list, onAdd, onEdit, onDel){
+  let el = null, front = null, x0 = 0, y0 = 0, base = 0, dx = 0, dir = '';
+  const OPEN = -144;
+  const set = (f, x, anim) => { f.style.transition = anim ? 'transform .2s ease' : 'none'; f.style.transform = `translateX(${x}px)`; f.parentElement.classList.toggle('adding', x > 0); };
+  const closeOthers = keep => list.querySelectorAll('.sw.open').forEach(o => { if (o !== keep) { o.classList.remove('open'); set(o.querySelector('.swf'), 0, true); } });
+  list.addEventListener('touchstart', e => { const f = e.target.closest('.swf'); if (!f || e.touches.length !== 1) { el = null; return; }
+    el = f.parentElement; front = f; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dx = 0; dir = ''; base = el.classList.contains('open') ? OPEN : 0; }, { passive: true });
+  list.addEventListener('touchmove', e => { if (!el) return; const mx = e.touches[0].clientX - x0, my = e.touches[0].clientY - y0;
+    if (!dir) { if (Math.abs(mx) > 8 && Math.abs(mx) > Math.abs(my)) dir = 'h'; else if (Math.abs(my) > 8) { dir = 'v'; el = null; return; } else return; }
+    e.preventDefault(); e.stopPropagation(); dx = mx; set(front, Math.max(OPEN - 30, Math.min(160, base + dx)), false); }, { passive: false });
+  const end = () => { if (!el || dir !== 'h') { el = null; return; } const x = base + dx, id = el.dataset.id, cur = el;
+    if (x > 90) { set(front, 400, true); setTimeout(() => onAdd(id), 160); }
+    else if (x < -60) { closeOthers(cur); cur.classList.add('open'); set(front, OPEN, true); }
+    else { cur.classList.remove('open'); set(front, 0, true); }
+    front.dataset.swiped = '1'; setTimeout(() => { if (front) delete front.dataset.swiped; }, 350); el = null; };
+  list.addEventListener('touchend', end); list.addEventListener('touchcancel', end);
+  list.addEventListener('click', e => { const f = e.target.closest('.swf');
+    if (f && f.dataset.swiped) { e.stopPropagation(); e.preventDefault(); return; }
+    if (f && f.parentElement.classList.contains('open')) { e.stopPropagation(); e.preventDefault(); f.parentElement.classList.remove('open'); set(f, 0, true); return; }
+    const a = e.target.closest('.sw-act'); if (a) { e.stopPropagation(); const id = a.closest('.sw').dataset.id; (a.dataset.a === 'edit' ? onEdit : onDel)(id); } }, true);
 }
 function openStopwatch(exId){
   const ex = exById(exId), it = wkPlan(S.workouts[D]).find(i => i.exId === exId) || {};
@@ -456,7 +633,7 @@ function openExPicker(onPick, onBack){
   const filters = [['all', 'Все'], ['gym', 'Зал'], ['cali', 'Калистеника'], ['mine', 'Мои']];
   const sh = sheet(`<h2>Упражнение</h2><input id="exq" placeholder="Поиск или новое название" autocomplete="off">
     <div class="actions" id="exf">${filters.map(([k, l]) => `<button class="chip" data-s="f" data-f="${k}" aria-pressed="${PF === k}">${l}</button>`).join('')}</div>
-    <div id="exlist" style="margin-top:6px"></div>
+    <p class="small swhint">Свайп вправо — добавить, влево — изменить или удалить</p><div id="exlist"></div>
     <button class="btn ghost" data-s="create" style="margin-top:10px">Своё упражнение</button>
     ${onBack ? '<button class="btn ghost" data-s="back">Назад</button>' : ''}`);
   const q = sh.querySelector('#exq'), list = sh.querySelector('#exlist'), last = {};
@@ -467,9 +644,16 @@ function openExPicker(onPick, onBack){
       .sort((a, b) => (last[b.id] || '').localeCompare(last[a.id] || '') || a.name.localeCompare(b.name, 'ru'));
     const exact = S.exercises.some(x => !x.hidden && x.name.toLowerCase() === v);
     list.innerHTML = (v && !exact ? `<button class="row" data-s="new"><span class="nm">Создать «${esc(q.value.trim())}»</span><span class="meta">+</span></button>` : '')
-      + xs.map(x => `<button class="row" data-s="ex" data-id="${x.id}"><span class="nm">${esc(x.name)}${x.equip && x.equip.length ? `<small>${esc(x.equip.join(', '))}</small>` : ''}</span><span class="meta">${esc(x.group || '')}</span></button>`).join('')
+      + xs.map(x => `<div class="sw" data-id="${x.id}"><div class="sw-add">+ ${onPick ? 'В шаблон' : 'В тренировку'}</div><div class="sw-acts"><button class="sw-act" data-a="edit">Изменить</button><button class="sw-act del" data-a="del">${x.custom ? 'Удалить' : 'Скрыть'}</button></div>
+        <button class="row swf" data-s="ex" data-id="${x.id}"><span class="nm">${esc(x.name)}${x.equip && x.equip.length ? `<small>${esc(x.equip.join(', '))}</small>` : ''}</span><span class="meta">${esc(x.group || '')}</span></button></div>`).join('')
       || `<p class="empty">${PF === 'mine' && !v ? 'Своих упражнений пока нет' : 'Ничего не нашлось'}</p>`; };
   q.oninput = draw; draw();
+  attachSwipes(list, id => pick(id), id => openExEditor(exById(id), '', () => again(), again), id => {
+    const ex = exById(id); if (!ex) return; const used = Object.values(S.workouts).some(w => w.sets.some(s => s.exId === id));
+    if (!confirm(ex.custom && !used ? `Удалить «${ex.name}»?` : `Убрать «${ex.name}» из списка? Записанные подходы и графики сохранятся.`)) return;
+    if (ex.custom && !used) S.exercises = S.exercises.filter(x => x !== ex); else ex.hidden = true;
+    for (const t of S.templates) t.items = t.items.filter(i => i.exId !== id);
+    save(); draw(); toast(ex.custom && !used ? 'Удалено' : 'Убрано из списка'); });
   sh.onclick = e => { const b = e.target.closest('[data-s]'); if (!b) return; const s = b.dataset.s;
     if (s === 'back') return onBack();
     if (s === 'f') { PF = b.dataset.f; sh.querySelectorAll('#exf .chip').forEach(c => c.setAttribute('aria-pressed', c === b)); draw(); }
@@ -557,24 +741,31 @@ function openTplEditor(draft, keepScroll){
   const n = draft.items.length;
   const sh = sheet(`<h2>${draft.isNew ? 'Новый шаблон' : 'Шаблон'}</h2>
     <div class="field"><label for="tn">Название</label><input id="tn" value="${esc(draft.name)}" placeholder="Например, Верх А"></div>
-    ${draft.items.map((it, i) => { const ex = exById(it.exId) || { name: '?' }, tm = isTimed(ex); return `<div class="ti" data-i="${i}">
+    ${(() => { const pos = []; circuitsOf(draft.items).forEach(g => g.forEach((it, k) => pos.push({ inC: g.length > 1, first: k === 0, last: k === g.length - 1 })));
+      return draft.items.map((it, i) => { const ex = exById(it.exId) || { name: '?' }, tm = isTimed(ex), ps = pos[i];
+      return `<div class="ti${ps.inC ? ' inc' : ''}${ps.inC && ps.first ? ' cfirst' : ''}${ps.inC && ps.last ? ' clast' : ''}" data-i="${i}">
+      ${ps.inC && ps.first ? '<p class="circ-tag">⛓ Круг</p>' : ''}
       <div class="ti-head"><b>${esc(ex.name)}</b><span class="ti-ctl"><button data-s="up" data-i="${i}" aria-label="Выше"${i ? '' : ' disabled'}>↑</button><button data-s="down" data-i="${i}" aria-label="Ниже"${i < n - 1 ? '' : ' disabled'}>↓</button><button data-s="rm" data-i="${i}" aria-label="Убрать">×</button></span></div>
-      <div class="grid3"><label>Подходы<input class="t-sets" inputmode="numeric" value="${it.sets || ''}" placeholder="3"></label>
+      <div class="grid3">${!ps.inC || ps.first ? `<label>${ps.inC ? 'Круги' : 'Подходы'}<input class="t-sets" inputmode="numeric" value="${it.sets || ''}" placeholder="3"></label>` : '<span class="t-skip">подряд</span>'}
       <label>${tm ? 'Секунды' : 'Повторы'}<input class="t-target" value="${esc(it.target || '')}" placeholder="${tm ? '30' : '8–10'}"></label>
-      <label>Отдых<select class="t-rest">${REST_OPTS.map(([v, l]) => `<option value="${v}"${String(it.rest ?? '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div></div>`; }).join('')}
+      ${!ps.inC || ps.last ? `<label>${ps.inC ? 'Отдых после круга' : 'Отдых'}<select class="t-rest">${REST_OPTS.map(([v, l]) => `<option value="${v}"${String(it.rest ?? '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>` : '<span class="t-skip">без отдыха</span>'}</div></div>
+      ${i < n - 1 ? `<button class="tlink" data-s="link" data-i="${i}" aria-pressed="${!!it.link}">${it.link ? '⛓ В одном круге, разорвать' : '+ Объединить в круг'}</button>` : ''}`; }).join(''); })()}
     ${n ? '' : '<p class="small" style="margin:4px 0 12px">Пока пусто. Добавляй упражнения в том порядке, в каком делаешь их в зале.</p>'}
     <button class="btn ghost" data-s="add">+ Упражнение</button><button class="btn accent" data-s="save">Сохранить шаблон</button>
     ${draft.isNew ? '' : '<button class="btn ghost danger" data-s="del">Удалить шаблон</button>'}`, { instant: !!keepScroll });
   if (keepScroll) sh.scrollTop = keepScroll === 'bottom' ? sh.scrollHeight : keepScroll;
   const sync = () => { draft.name = sh.querySelector('#tn').value.trim();
     sh.querySelectorAll('.ti').forEach(el => { const it = draft.items[+el.dataset.i], k = Math.round(num(el.querySelector('.t-sets').value));
-      it.sets = k > 0 ? k : 0; it.target = el.querySelector('.t-target').value.trim(); it.rest = el.querySelector('.t-rest').value; }); };
+      if (el.querySelector('.t-sets')) it.sets = k > 0 ? k : 0; it.target = el.querySelector('.t-target').value.trim(); if (el.querySelector('.t-rest')) it.rest = el.querySelector('.t-rest').value; }); };
   sh.onclick = e => { const b = e.target.closest('button[data-s]'); if (!b || b.disabled) return; const s = b.dataset.s, i = +b.dataset.i; sync();
-    if (s === 'up' || s === 'down') { const j = s === 'up' ? i - 1 : i + 1; [draft.items[i], draft.items[j]] = [draft.items[j], draft.items[i]]; openTplEditor(draft, sh.scrollTop || 1); }
+    if (s === 'link') { draft.items[i].link = !draft.items[i].link; openTplEditor(draft, sh.scrollTop || 1); }
+    else if (s === 'up' || s === 'down') { const j = s === 'up' ? i - 1 : i + 1; [draft.items[i], draft.items[j]] = [draft.items[j], draft.items[i]]; openTplEditor(draft, sh.scrollTop || 1); }
     else if (s === 'rm') { draft.items.splice(i, 1); openTplEditor(draft, sh.scrollTop || 1); }
     else if (s === 'add') openExPicker(id => { if (!draft.items.some(x => x.exId === id)) draft.items.push({ exId: id, sets: 3, target: '', rest: '' }); openTplEditor(draft, 'bottom'); }, () => openTplEditor(draft, 'bottom'));
     else if (s === 'save') { if (!draft.name) { toast('Назови шаблон'); sh.querySelector('#tn').focus(); return; } if (!draft.items.length) { toast('Добавь хотя бы одно упражнение'); return; }
-      const clean = { id: draft.id, name: draft.name, used: draft.used, items: draft.items.map(it => ({ exId: it.exId, sets: it.sets || 0, target: it.target || '', rest: it.rest ?? '' })) };
+      for (const g of circuitsOf(draft.items)) if (g.length > 1) g.forEach((it, k) => { it.sets = g[0].sets; if (k < g.length - 1) it.rest = ''; });
+      if (draft.items.length) draft.items.at(-1).link = false;
+      const clean = { id: draft.id, name: draft.name, used: draft.used, items: draft.items.map(it => ({ exId: it.exId, sets: it.sets || 0, target: it.target || '', rest: it.rest ?? '', link: !!it.link })) };
       const k = S.templates.findIndex(t => t.id === draft.id); if (k >= 0) S.templates[k] = clean; else S.templates.push(clean);
       save(); dismissSheet(); render(); toast('Шаблон сохранён'); }
     else if (s === 'del') { if (!confirm(`Удалить шаблон «${draft.name}»? Записанные тренировки останутся.`)) return;
@@ -976,6 +1167,9 @@ const ACTIONS = {
   pickex: () => openExPicker(),
   logset: t => logSet(t.dataset.ex),
   stopwatch: t => openStopwatch(t.dataset.ex),
+  ivtimer: t => openTimer(t.dataset.ex),
+  link: t => { const wk = ensureWk(), it = wk.plan.find(i => i.exId === t.dataset.ex); if (!it) return; it.link = !it.link; save(); render();
+    toast(it.link ? 'Объединено в круг: отдых будет после последнего упражнения' : 'Круг разорван'); },
   rmex: t => { const wk = S.workouts[D]; if (!wk) return; wk.plan = wkPlan(wk).filter(i => i.exId !== t.dataset.ex); save(); render(); },
   finish: () => { const wk = S.workouts[D]; if (!wk) return; if (!wk.sets.length && !confirm('Подходов не записано. Всё равно завершить?')) return;
     wk.finishedAt = Date.now(); S.timer = null; cancelBeep('rest'); releaseWake(); save(); render(); scrollTo(0, 0);
@@ -986,7 +1180,7 @@ const ACTIONS = {
   newtpl: () => openTplEditor(null),
   saveastpl: () => { const wk = S.workouts[D]; if (!wk) return;
     openTplEditor({ id: uid(), name: wk.tplName ? wk.tplName + ' (копия)' : '', isNew: true,
-      items: wkPlan(wk).map(i => ({ exId: i.exId, sets: i.sets || wk.sets.filter(s => s.exId === i.exId).length || 3, target: i.target || '', rest: i.rest ?? '' })) }); },
+      items: wkPlan(wk).map(i => ({ exId: i.exId, sets: i.sets || wk.sets.filter(s => s.exId === i.exId).length || 3, target: i.target || '', rest: i.rest ?? '', link: !!i.link })) }); },
   rest: t => adjustRest(Number(t.dataset.d)),
   wk: t => { WKO = Math.min(0, WKO + Number(t.dataset.d)); render(); },
   delset: t => { const wk = S.workouts[D]; const s = wk && wk.sets.find(x => x.id === t.dataset.id); if (!s) return;
