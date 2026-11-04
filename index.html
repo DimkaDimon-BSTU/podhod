@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#EDEFF2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#11151B" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -31,6 +31,7 @@ body[data-screen=progress]{--accent:var(--blue)}
 body[data-screen=profile]{--accent:var(--blue)}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{min-height:100%}
+html,body,button,a,input,select,textarea,label{touch-action:manipulation}
 html{scroll-padding-bottom:calc(96px + env(safe-area-inset-bottom,0px));scroll-padding-top:calc(70px + env(safe-area-inset-top,0px))}
 body{background:var(--bg);color:var(--ink);font:16px/1.4 var(--text);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
 button{cursor:pointer;font:inherit;color:inherit}
@@ -207,6 +208,8 @@ body.has-timer main{padding-bottom:calc(200px + env(safe-area-inset-bottom,0px))
 .ex-tools{display:flex;align-items:center;gap:6px;flex:0 0 auto}
 .grid2 > .btn{margin-top:0}
 .grid2 + .btn{margin-top:8px}
+.wktabs{display:flex;gap:6px;overflow-x:auto;margin:-4px 0 12px;padding-bottom:2px;scrollbar-width:none}.wktabs::-webkit-scrollbar{display:none}
+.wktabs .chip{background:var(--surface);flex:0 0 auto}.wktabs .chip[aria-pressed=true]{background:var(--accent);color:#fff}.wktabs .chip small{opacity:.7;font-weight:500}
 .tpl-start .row .meta{color:var(--accent);font-weight:600}
 @media (prefers-reduced-motion:reduce){.sheet,.sheet-wrap,#toast{transition:none}}
 </style>
@@ -226,7 +229,7 @@ body.has-timer main{padding-bottom:calc(200px + env(safe-area-inset-bottom,0px))
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
 'use strict';
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 /* ---------- утилиты ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -307,13 +310,21 @@ function workoutDuration(wk){ if (!wk) return 0; if (wk.duration > 0) return wk.
   const ts = (wk.sets || []).map(s => s.t).filter(Boolean); if (!ts.length) return 0;
   return Math.max(15, Math.round((Math.max(...ts) - Math.min(...ts)) / 60000 + 5)); }
 // Силовая ≈ 5 MET; из них 1 MET уже учтён в базовом обмене, поэтому считаем 4.
-function workoutKcal(date){ const wk = S.workouts[date]; if (!wk) return 0; if (wk.kcal > 0) return wk.kcal;
-  if (!wk.sets.length) return 0; const w = weightOn(date) || 75; return Math.round(4 * w * workoutDuration(wk) / 60); }
+// Тренировки хранятся по ключам: первая за день — "2026-11-03", следующие — "2026-11-03#метка" (метка растёт со временем создания)
+let WKEY = null;
+const keyDate = k => k.slice(0, 10);
+const dayKeys = d => Object.keys(S.workouts).filter(k => keyDate(k) === d).sort();
+const hasContent = w => !!w && (w.sets.length > 0 || (w.plan && w.plan.length > 0) || !!w.startedAt);
+function curKey(){ const ks = dayKeys(D); if (WKEY && keyDate(WKEY) === D && S.workouts[WKEY]) return WKEY; WKEY = ks.length ? ks.at(-1) : D; return WKEY; }
+const curWk = () => S.workouts[curKey()];
+function pruneEmpty(){ for (const k of Object.keys(S.workouts)) if (k !== WKEY && !hasContent(S.workouts[k])) delete S.workouts[k]; }
+function wkKcal(wk, date){ if (!wk) return 0; if (wk.kcal > 0) return wk.kcal; if (!wk.sets.length) return 0; const w = weightOn(date) || 75; return Math.round(4 * w * workoutDuration(wk) / 60); }
+function workoutKcal(date){ return dayKeys(date).reduce((a, k) => a + wkKcal(S.workouts[k], date), 0); }
 function dayTotals(date){ const t = { kcal: 0, p: 0, f: 0, c: 0 }; for (const m of S.meals[date] || []) { t.kcal += m.kcal; t.p += m.p; t.f += m.f; t.c += m.c; } return t; }
 function expenditure(date){ const b = bmr(date); if (!isFinite(b)) return NaN; return Math.round(b * (num(S.profile.activity) || 1.2) + workoutKcal(date)); }
 const e1rm = (w, r) => r <= 1 ? w : w * (1 + r / 30);
-function lastSessionBefore(exId, date){ const ds = Object.keys(S.workouts).filter(d => d < date).sort().reverse();
-  for (const d of ds) { const ss = S.workouts[d].sets.filter(s => s.exId === exId); if (ss.length) return { date: d, sets: ss }; } return null; }
+function lastSessionBefore(exId, before){ const ds = Object.keys(S.workouts).filter(k => k < before).sort().reverse();
+  for (const d of ds) { const ss = S.workouts[d].sets.filter(s => s.exId === exId); if (ss.length) return { date: keyDate(d), sets: ss }; } return null; }
 
 /* ---------- шторка снизу ---------- */
 // Фон под шторкой фиксируется, чтобы не прокручивался. Шторку можно смахнуть вниз.
@@ -400,8 +411,8 @@ function lastActivity(wk){ return Math.max(wk.startedAt || 0, ...wk.sets.map(s =
 function isLive(wk, date){ return !!(wk && date === today() && wk.startedAt && !wk.finishedAt && Date.now() - lastActivity(wk) < 3 * 3600e3); }
 let tickT = null;
 function tick(){
-  if (!S) return; const bar = $('#restbar'), t = S.timer, wk = S.workouts[today()], live = isLive(wk, today());
-  const wc = $('#wclock'); if (wc && live) wc.textContent = fmtClock((Date.now() - wk.startedAt) / 1000);
+  if (!S) return; const bar = $('#restbar'), t = S.timer, live = dayKeys(today()).some(k => isLive(S.workouts[k], today()));
+  const wc = $('#wclock'), cw = D === today() ? curWk() : null; if (wc && isLive(cw, today())) wc.textContent = fmtClock((Date.now() - cw.startedAt) / 1000);
   if (!t) { bar.hidden = true; document.body.classList.remove('has-timer'); }
   else { const left = (t.end - Date.now()) / 1000; bar.hidden = false; document.body.classList.add('has-timer');
     if (left <= 0) { bar.classList.add('done'); bar.classList.remove('warn'); bar.querySelector('.rt-label').textContent = 'Отдых окончен, вперёд!'; bar.querySelector('.rt-time').textContent = '−' + fmtClock(Math.floor(-left)); bar.querySelector('.rt-fill').style.width = '100%';
@@ -413,21 +424,24 @@ function tick(){
 let wakeL = null;
 async function requestWake(){ try { if ('wakeLock' in navigator && !wakeL && document.visibilityState === 'visible') { wakeL = await navigator.wakeLock.request('screen'); wakeL.addEventListener('release', () => { wakeL = null; }); } } catch (e) {} }
 function releaseWake(){ try { if (wakeL) wakeL.release(); } catch (e) {} wakeL = null; }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S) { if (isLive(S.workouts[today()], today())) requestWake(); tick(); } });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S) { if (dayKeys(today()).some(k => isLive(S.workouts[k], today()))) requestWake(); tick(); } });
 
 /* ----- зал ----- */
 function wkPlan(wk){ const items = wk && wk.plan ? wk.plan.slice() : [];
   for (const s of wk ? wk.sets : []) if (!items.some(i => i.exId === s.exId)) items.push({ exId: s.exId }); return items; }
-function ensureWk(){ const wk = S.workouts[D] || (S.workouts[D] = { sets: [] }); if (!wk.plan) wk.plan = wkPlan(wk); return wk; }
+function ensureWk(){ const k = curKey(), wk = S.workouts[k] || (S.workouts[k] = { sets: [] }); if (!wk.plan) wk.plan = wkPlan(wk); return wk; }
 function viewWorkout(){
-  const wk = S.workouts[D], sets = wk ? wk.sets : [], items = wkPlan(wk);
-  const vol = sets.reduce((a, s) => a + s.w * s.r, 0), dur = workoutDuration(wk), kc = workoutKcal(D), live = isLive(wk, D);
+  pruneEmpty(); const wk = curWk(), sets = wk ? wk.sets : [], items = wkPlan(wk), CK = curKey();
+  const vol = sets.reduce((a, s) => a + s.w * s.r, 0), dur = workoutDuration(wk), kc = wkKcal(wk, D), live = isLive(wk, D);
   const kcTxt = kc ? (wk.kcal > 0 ? '' : '≈') + fmtNum(kc) : '—';
   let h = live
     ? `<div class="board"><div class="cap">Идёт тренировка${wk.tplName ? ': ' + esc(wk.tplName) : ''}</div><div class="big" id="wclock">${fmtClock((Date.now() - wk.startedAt) / 1000)}</div>
       <div class="stats"><div class="stat"><b>${sets.length}</b><span>${plural(sets.length, 'подход', 'подхода', 'подходов')}</span></div><div class="stat"><b>${fmtNum(vol)}</b><span>кг объём</span></div><div class="stat"><b>${kcTxt}</b><span>ккал</span></div></div></div>`
     : `<div class="board"><div class="cap">${wk && wk.tplName && sets.length ? esc(wk.tplName) + ', объём' : 'Объём тренировки'}</div><div class="big">${fmtNum(vol)} <span class="unit">кг</span></div>
       <div class="stats"><div class="stat"><b>${sets.length}</b><span>${plural(sets.length, 'подход', 'подхода', 'подходов')}</span></div><div class="stat"><b>${dur || '—'}</b><span>мин</span></div><div class="stat"><b>${kcTxt}</b><span>ккал</span></div></div></div>`;
+  { const ks = dayKeys(D).filter(k => k === CK || hasContent(S.workouts[k]));
+    if (ks.length > 1 || hasContent(wk)) h += `<div class="wktabs">${ks.map((k, n) => { const w = S.workouts[k];
+      return `<button class="chip" data-act="selwk" data-k="${k}" aria-pressed="${k === CK}">${esc(w.tplName || `Тренировка ${n + 1}`)}${w.startedAt ? ` <small>${hhmm(w.startedAt)}</small>` : ''}</button>`; }).join('')}${hasContent(wk) ? '<button class="chip" data-act="newwk">+ Ещё тренировка</button>' : ''}</div>`; }
   if (!items.length) {
     const tpls = S.templates.slice().sort((a, b) => (b.used || 0) - (a.used || 0));
     if (tpls.length) h += `<div class="card tpl-start"><h2>Начать по шаблону<button class="chip" data-act="tpls">Шаблоны</button></h2>${tpls.map(t =>
@@ -436,7 +450,7 @@ function viewWorkout(){
   }
   const exCard = (it, ctx) => {
     const id = it.exId, ex = exById(id); if (!ex) return '';
-    const done = sets.filter(s => s.exId === id), prev = lastSessionBefore(id, D), timed = isTimed(ex), rest = ctx.inCirc ? 0 : restFor(it);
+    const done = sets.filter(s => s.exId === id), prev = lastSessionBefore(id, CK), timed = isTimed(ex), rest = ctx.inCirc ? 0 : restFor(it);
     const ps = prev && (prev.sets[done.length] || prev.sets.at(-1));
     let wv = done.length ? done.at(-1).w : ps ? ps.w : ''; if (ex.bw && !(wv > 0)) wv = '';
     const n = ctx.inCirc ? ctx.rounds : it.sets;
@@ -469,6 +483,7 @@ function viewWorkout(){
     <div class="field"><label for="wkc">Ккал с часов</label><input id="wkc" inputmode="numeric" placeholder="если есть" value="${wk.kcal || ''}"></div></div>
     <p class="small" style="margin-bottom:12px">Пустое поле повторов при нажатии ✓ означает «как в прошлый раз». Нажми на записанный подход, чтобы удалить его.</p>
     <button class="btn ghost" data-act="saveastpl">Сохранить как шаблон</button></div>`;
+  if (hasContent(wk)) h += `<button class="btn ghost danger" data-act="delwk" style="margin-top:${sets.length ? 0 : 8}px">${sets.length ? 'Удалить тренировку' : 'Отменить тренировку'}</button>`;
   return h;
 }
 function logSet(exId){
@@ -501,12 +516,12 @@ function circuitsOf(items){ const g = []; let cur = []; items.forEach((it, i) =>
 function groupOf(items, exId){ const g = circuitsOf(items).find(x => x.some(i => i.exId === exId)); return g && g.length > 1 ? g : null; }
 const lastNum = v => { const m = String(v || '').match(/\d+/g); return m ? Number(m.at(-1)) : 0; };
 function openTimer(exId){
-  const wk = S.workouts[D], items = wkPlan(wk), it = items.find(i => i.exId === exId) || { exId }, grp = groupOf(items, exId);
+  const wk = curWk(), items = wkPlan(wk), it = items.find(i => i.exId === exId) || { exId }, grp = groupOf(items, exId);
   const allTimed = grp && grp.every(i => isTimed(exById(i.exId)));
   const mode = grp ? (allTimed ? 'circuit' : 'one') : 'sets';
   const steps = mode === 'circuit' ? grp.map(i => i.exId) : [exId];
   const doneOf = id => (wk ? wk.sets : []).filter(s => s.exId === id).length;
-  const lastOf = id => { const p = lastSessionBefore(id, D); return p ? p.sets[0].r : 0; };
+  const lastOf = id => { const p = lastSessionBefore(id, curKey()); return p ? p.sets[0].r : 0; };
   const st = { work: {}, rest: restFor(mode === 'circuit' ? grp.at(-1) : it) || 60, prep: num(S.profile.ivPrep) >= 0 && S.profile.ivPrep !== undefined ? num(S.profile.ivPrep) : 5,
     trans: num(S.profile.ivTrans) >= 0 && S.profile.ivTrans !== undefined ? num(S.profile.ivTrans) : 10, rounds: 1 };
   for (const id of steps) { const x = items.find(i => i.exId === id) || {}; st.work[id] = lastNum(x.target) || lastOf(id) || 30; }
@@ -554,7 +569,7 @@ function openTimer(exId){
   const stopAll = () => { clearInterval(iv); iv = null; cancelBeep('iv'); };
   const finish = () => { stopAll();
     if (mode === 'one') { if (sh.isConnected) closeSheet(); return; }
-    const w2 = S.workouts[D], plan = wkPlan(w2), allDone = plan.some(i => i.sets) && plan.every(i => !i.sets || w2.sets.filter(x => x.exId === i.exId).length >= i.sets);
+    const w2 = curWk(), plan = wkPlan(w2), allDone = plan.some(i => i.sets) && plan.every(i => !i.sets || w2.sets.filter(x => x.exId === i.exId).length >= i.sets);
     box.innerHTML = `<div class="run ph-done"><div class="r-ph">Готово</div><div class="r-time">✓</div><p class="r-next">${logged ? `Записано: ${logged} ${plural(logged, 'подход', 'подхода', 'подходов')}` : 'Ничего не записано'}</p></div>
       <button class="btn accent" data-s="close">${allDone || D !== today() ? 'Готово' : 'Готово, отдых перед следующим'}</button>`;
     box.dataset.next = allDone || D !== today() ? '' : String(restFor(mode === 'circuit' ? grp.at(-1) : it)); };
@@ -604,7 +619,7 @@ function attachSwipes(list, onAdd, onEdit, onDel){
     const a = e.target.closest('.sw-act'); if (a) { e.stopPropagation(); const id = a.closest('.sw').dataset.id; (a.dataset.a === 'edit' ? onEdit : onDel)(id); } }, true);
 }
 function openStopwatch(exId){
-  const ex = exById(exId), it = wkPlan(S.workouts[D]).find(i => i.exId === exId) || {};
+  const ex = exById(exId), it = wkPlan(curWk()).find(i => i.exId === exId) || {};
   const nums = String(it.target || '').match(/\d+/g), target = nums ? Number(nums.at(-1)) : 0;
   const wInp = $('#iw-' + exId), w = num(wInp && wInp.value || 0) || 0;
   let start = 0, acc = 0, run = false, iv = null;
@@ -637,7 +652,7 @@ function openExPicker(onPick, onBack){
     <button class="btn ghost" data-s="create" style="margin-top:10px">Своё упражнение</button>
     ${onBack ? '<button class="btn ghost" data-s="back">Назад</button>' : ''}`);
   const q = sh.querySelector('#exq'), list = sh.querySelector('#exlist'), last = {};
-  for (const [d, w] of Object.entries(S.workouts)) for (const s of w.sets) if (!last[s.exId] || last[s.exId] < d) last[s.exId] = d;
+  for (const [k, w] of Object.entries(S.workouts)) { const d = keyDate(k); for (const s of w.sets) if (!last[s.exId] || last[s.exId] < d) last[s.exId] = d; }
   const draw = () => { const v = q.value.trim().toLowerCase();
     const xs = S.exercises.filter(x => !x.hidden && x.name.toLowerCase().includes(v)
         && (PF === 'all' || (PF === 'mine' ? x.custom : exSection(x) === PF)))
@@ -992,17 +1007,17 @@ function weekStart(off){ const d = new Date(); d.setDate(d.getDate() - (d.getDay
 function weekStats(start){
   const days = [...Array(7)].map((_, i) => addDays(start, i)), t = today(), lim = cafLimit();
   const r = { trainings: 0, sets: 0, vol: 0, mins: 0, balSum: 0, balN: 0, kcal: 0, prot: 0, foodN: 0, caf: 0, cafN: 0, cafOver: 0, recs: [] };
-  for (const d of days) { const wk = S.workouts[d];
-    if (wk && wk.sets.length) { r.trainings++; r.sets += wk.sets.length; r.vol += wk.sets.reduce((a, s) => a + s.w * s.r, 0); r.mins += workoutDuration(wk); }
+  for (const d of days) { for (const k of dayKeys(d)) { const wk = S.workouts[k];
+      if (wk.sets.length) { r.trainings++; r.sets += wk.sets.length; r.vol += wk.sets.reduce((a, s) => a + s.w * s.r, 0); r.mins += workoutDuration(wk); } }
     if ((S.meals[d] || []).length && d <= t) { const tt = dayTotals(d), e = expenditure(d); r.foodN++; r.kcal += tt.kcal; r.prot += tt.p; if (isFinite(e)) { r.balSum += tt.kcal - e; r.balN++; } }
     const c = cafTotal(d); if (c > 0) { r.caf += c; r.cafN++; if (c > lim) r.cafOver++; } }
   const ws = Object.keys(S.weights).sort(), inW = ws.filter(d => d >= days[0] && d <= days[6]), before = ws.filter(d => d < days[0]).pop();
   r.wEnd = inW.length ? S.weights[inW.at(-1)] : null;
   r.wStart = before ? S.weights[before] : inW.length > 1 ? S.weights[inW[0]] : null;
   const score = s => s.w > 0 ? 1000 + e1rm(s.w, s.r) : s.r, ids = new Set();
-  for (const d of days) for (const s of (S.workouts[d] || { sets: [] }).sets) ids.add(s.exId);
+  for (const d of days) for (const k of dayKeys(d)) for (const s of S.workouts[k].sets) ids.add(s.exId);
   for (const id of ids) { let best = null, prior = 0;
-    for (const [d, wk] of Object.entries(S.workouts)) for (const s of wk.sets) { if (s.exId !== id) continue;
+    for (const [k, wk] of Object.entries(S.workouts)) for (const s of wk.sets) { const d = keyDate(k); if (s.exId !== id) continue;
       if (d < days[0]) prior = Math.max(prior, score(s)); else if (d <= days[6] && (!best || score(s) > score(best))) best = s; }
     if (best && prior > 0 && score(best) > prior && exById(id)) r.recs.push({ name: exById(id).name, set: best }); }
   return r;
@@ -1096,8 +1111,8 @@ function drawChart(cv, labels, series, opt = {}){
 }
 function drawProgress(){
   if (TAB !== 'progress') return;
-  if (PEX) { const ds = Object.keys(S.workouts).sort().filter(d => S.workouts[d].sets.some(s => s.exId === PEX));
-    const per = ds.map(d => S.workouts[d].sets.filter(s => s.exId === PEX));
+  if (PEX) { const byD = {}; for (const [k, w] of Object.entries(S.workouts)) { const ss = w.sets.filter(s => s.exId === PEX); if (ss.length) (byD[keyDate(k)] = byD[keyDate(k)] || []).push(...ss); }
+    const ds = Object.keys(byD).sort(), per = ds.map(d => byD[d]);
     const bw = per.every(ss => ss.every(s => s.w === 0));
     const series = bw ? [{ data: per.map(ss => Math.max(...ss.map(s => s.r))), color: cssv('--red') }]
       : [{ data: per.map(ss => Math.max(...ss.map(s => s.w))), color: cssv('--muted'), width: 1.5 },
@@ -1118,7 +1133,7 @@ function cafLine(){ const w = weightOn(today());
 function viewProfile(){
   const p = S.profile, sel = (k, v) => p[k] === v ? ' selected' : '';
   const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-  const nW = Object.keys(S.workouts).filter(d => S.workouts[d].sets.length).length, nM = Object.keys(S.meals).filter(d => S.meals[d].length).length;
+  const nW = new Set(Object.keys(S.workouts).filter(k => S.workouts[k].sets.length).map(keyDate)).size, nM = Object.keys(S.meals).filter(d => S.meals[d].length).length;
   return `${standalone ? '' : `<div class="card"><h2>Установка на телефон</h2><p class="small">Открой эту страницу в Safari, нажми «Поделиться», затем «На экран „Домой“». После первого запуска приложение работает без интернета.</p></div>`}
   <div class="card"><h2>О себе</h2>
     <div class="grid2"><div class="field"><label for="pf-sex">Пол</label><select id="pf-sex" data-pf="sex"><option value="m"${sel('sex', 'm')}>Мужской</option><option value="f"${sel('sex', 'f')}>Женский</option></select></div>
@@ -1162,28 +1177,34 @@ async function importData(file){
 
 /* ---------- события ---------- */
 const ACTIONS = {
-  day: t => { D = addDays(D, Number(t.dataset.d)); render(); },
-  today: () => { D = today(); render(); },
+  day: t => { D = addDays(D, Number(t.dataset.d)); WKEY = null; render(); },
+  today: () => { D = today(); WKEY = null; render(); },
+  selwk: t => { WKEY = t.dataset.k; render(); scrollTo(0, 0); },
+  newwk: () => { const k = `${D}#${Date.now().toString(36)}`; S.workouts[k] = { sets: [], plan: [] }; WKEY = k; save(); render(); scrollTo(0, 0); },
+  delwk: () => { const k = curKey(), wk = S.workouts[k]; if (!wk) return; const n = wk.sets.length;
+    if (!confirm(n ? `Удалить эту тренировку вместе с ${n} ${plural(n, 'подходом', 'подходами', 'подходами')}?` : 'Отменить эту тренировку?')) return;
+    if (isLive(wk, D)) { S.timer = null; cancelBeep('rest'); releaseWake(); }
+    delete S.workouts[k]; WKEY = null; save(); render(); scrollTo(0, 0); toast(n ? 'Тренировка удалена' : 'Тренировка отменена'); },
   pickex: () => openExPicker(),
   logset: t => logSet(t.dataset.ex),
   stopwatch: t => openStopwatch(t.dataset.ex),
   ivtimer: t => openTimer(t.dataset.ex),
   link: t => { const wk = ensureWk(), it = wk.plan.find(i => i.exId === t.dataset.ex); if (!it) return; it.link = !it.link; save(); render();
     toast(it.link ? 'Объединено в круг: отдых будет после последнего упражнения' : 'Круг разорван'); },
-  rmex: t => { const wk = S.workouts[D]; if (!wk) return; wk.plan = wkPlan(wk).filter(i => i.exId !== t.dataset.ex); save(); render(); },
-  finish: () => { const wk = S.workouts[D]; if (!wk) return; if (!wk.sets.length && !confirm('Подходов не записано. Всё равно завершить?')) return;
+  rmex: t => { const wk = curWk(); if (!wk) return; wk.plan = wkPlan(wk).filter(i => i.exId !== t.dataset.ex); save(); render(); },
+  finish: () => { const wk = curWk(); if (!wk) return; if (!wk.sets.length && !confirm('Подходов не записано. Всё равно завершить?')) return;
     wk.finishedAt = Date.now(); S.timer = null; cancelBeep('rest'); releaseWake(); save(); render(); scrollTo(0, 0);
     toast(`Тренировка завершена: ${fmtDur(workoutDuration(wk))}, ${wk.sets.length} ${plural(wk.sets.length, 'подход', 'подхода', 'подходов')}`); },
   starttpl: t => startTemplate(t.dataset.id),
   tpls: () => openTemplates(),
   myex: () => openMyExercises(),
   newtpl: () => openTplEditor(null),
-  saveastpl: () => { const wk = S.workouts[D]; if (!wk) return;
+  saveastpl: () => { const wk = curWk(); if (!wk) return;
     openTplEditor({ id: uid(), name: wk.tplName ? wk.tplName + ' (копия)' : '', isNew: true,
       items: wkPlan(wk).map(i => ({ exId: i.exId, sets: i.sets || wk.sets.filter(s => s.exId === i.exId).length || 3, target: i.target || '', rest: i.rest ?? '', link: !!i.link })) }); },
   rest: t => adjustRest(Number(t.dataset.d)),
   wk: t => { WKO = Math.min(0, WKO + Number(t.dataset.d)); render(); },
-  delset: t => { const wk = S.workouts[D]; const s = wk && wk.sets.find(x => x.id === t.dataset.id); if (!s) return;
+  delset: t => { const wk = curWk(); const s = wk && wk.sets.find(x => x.id === t.dataset.id); if (!s) return;
     if (!confirm(`Удалить подход ${setTxt(s)}?`)) return; wk.sets = wk.sets.filter(x => x.id !== s.id); save(); render(); },
   addfood: () => openFoodSearch(),
   addcaf: () => openCafPicker(),
@@ -1203,7 +1224,7 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => { const t = e.target; if (e.key === 'Enter' && t.dataset && t.dataset.log) { e.preventDefault(); logSet(t.dataset.log); } });
 document.addEventListener('change', e => {
   const t = e.target;
-  if (t.id === 'wdur' || t.id === 'wkc') { const wk = S.workouts[D]; if (!wk) return; const v = Math.round(num(t.value));
+  if (t.id === 'wdur' || t.id === 'wkc') { const wk = curWk(); if (!wk) return; const v = Math.round(num(t.value));
     wk[t.id === 'wdur' ? 'duration' : 'kcal'] = v > 0 ? v : 0; save(); render(); }
   else if (t.id === 'pex') { PEX = t.value; render(); }
   else if (t.id === 'importFile') { importData(t.files[0]); t.value = ''; }
